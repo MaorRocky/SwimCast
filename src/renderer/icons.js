@@ -21,6 +21,9 @@ window.ICONS = (() => {
     file: s('<path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6"/>'),
     alert: s('<circle cx="12" cy="12" r="9"/><path d="M12 8v4M12 16h.01"/>'),
     sd: s('<path d="M7 2h8l4 4v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2z"/><path d="M9 6v3M12 6v3M15 6v3"/>'),
+    grid: s('<rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/>'),
+    clock: s('<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>'),
+    back: s('<path d="m15 18-6-6 6-6"/>'),
     wave: s('<path d="M2 12c2 0 2-2 4-2s2 2 4 2 2-2 4-2 2 2 4 2 2-2 4-2"/><path d="M2 17c2 0 2-2 4-2s2 2 4 2 2-2 4-2 2 2 4 2 2-2 4-2" opacity=".5"/>'),
   };
 })();

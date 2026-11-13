@@ -12,6 +12,7 @@ contextBridge.exposeInMainWorld('api', {
   podcasts: {
     list: () => call('podcasts:list'),
     episodes: (id) => call('podcasts:episodes', id),
+    recent: (limit) => call('podcasts:recent', limit),
     add: (url, hint) => call('podcasts:add', url, hint),
     addMany: (cands) => call('podcasts:addMany', cands),
     refresh: (id) => call('podcasts:refresh', id),

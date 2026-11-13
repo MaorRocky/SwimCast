@@ -24,6 +24,26 @@ class Library {
     });
   }
 
+  /** Newest episodes across every show (each feed is stored newest-first, so its head is enough). */
+  recentEpisodes(limit = 200) {
+    const pool = [];
+    for (const p of this.store.podcasts) {
+      for (const e of this.store.getEpisodes(p.id).slice(0, 30)) pool.push({ e, p });
+    }
+    pool.sort((a, b) => (b.e.pubDate || '').localeCompare(a.e.pubDate || ''));
+    return pool.slice(0, limit).map(({ e, p }) => {
+      const d = this.store.getDownload(e.id);
+      return {
+        ...e,
+        podcastId: p.id,
+        podcastTitle: p.title,
+        podcastArtwork: p.artwork,
+        downloaded: d ? { path: d.path, size: d.size } : null,
+        copied: !!this.store.data.copied[e.id],
+      };
+    });
+  }
+
   /** Subscribe to a feed (only inside this app). Returns the podcast. */
   async addFeed(feedUrl, hint = {}) {
     const url = normalizeFeedUrl(feedUrl);

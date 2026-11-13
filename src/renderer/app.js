@@ -83,30 +83,121 @@ const state = {
   shown: 60,
   selected: new Set(),
   dl: new Map(), // episodeId -> status
-  subFilter: '',
+  libQuery: '',
+  libSort: 'latest',
+  epSort: 'newest',
 };
 const rowActions = new Map(); // episodeId -> action container in the current list
 
 // ---------------------------------------------------------------- sidebar
 function renderSidebar() {
-  const list = $('#pod-list');
-  list.replaceChildren();
-  const q = state.subFilter.toLowerCase();
-  const items = state.podcasts.filter((p) => !q || p.title.toLowerCase().includes(q) || (p.author || '').toLowerCase().includes(q));
-  if (!state.podcasts.length) {
-    list.append(h('li', { class: 'side-empty' }, 'No podcasts yet. Import your Apple Podcasts subscriptions or add a show.'));
-  }
-  for (const p of items) {
-    const active = state.view.type === 'podcast' && state.view.id === p.id;
-    const sub = p.lastError
-      ? h('div', { class: 's err' }, 'Couldn’t refresh')
-      : h('div', { class: 's' }, [p.latest ? `New ${ago(p.latest)}` : `${p.episodeCount} episodes`, p.downloadedCount ? ` · ${p.downloadedCount} saved` : ''].join(''));
-    list.append(h('li', { class: `pod-item${active ? ' active' : ''}`, onclick: () => openPodcast(p.id), title: p.title },
-      artwork(p.artwork, p.title), h('div', { class: 'meta' }, h('div', { class: 't' }, p.title), sub)));
-  }
+  const t = state.view.type;
   const totalDownloaded = state.podcasts.reduce((s, p) => s + (p.downloadedCount || 0), 0);
   $('#downloaded-count').textContent = totalDownloaded ? String(totalDownloaded) : '';
-  $('#nav-downloads').classList.toggle('active', state.view.type === 'downloads');
+  $('#podcast-count').textContent = state.podcasts.length ? String(state.podcasts.length) : '';
+  // A show page belongs to the library, so "Podcasts" stays highlighted while it is open.
+  $('#nav-library').classList.toggle('active', t === 'library' || (t === 'podcast' && state.view.from !== 'latest'));
+  $('#nav-latest').classList.toggle('active', t === 'latest' || (t === 'podcast' && state.view.from === 'latest'));
+  $('#nav-downloads').classList.toggle('active', t === 'downloads');
+}
+
+// ---------------------------------------------------------------- library (podcast grid)
+const SORTS = {
+  latest: { label: 'Latest episode', cmp: (a, b) => (b.latest || '').localeCompare(a.latest || '') },
+  title: { label: 'Title (A–Z)', cmp: (a, b) => sortTitle(a).localeCompare(sortTitle(b), undefined, { sensitivity: 'base', numeric: true }) },
+  added: { label: 'Recently added', cmp: (a, b) => (b.addedAt || '').localeCompare(a.addedAt || '') },
+  episodes: { label: 'Most episodes', cmp: (a, b) => (b.episodeCount || 0) - (a.episodeCount || 0) },
+  downloaded: { label: 'Most downloaded', cmp: (a, b) => (b.downloadedCount || 0) - (a.downloadedCount || 0) },
+};
+// Like Apple Podcasts: "The Daily" sorts under D.
+const sortTitle = (p) => (p.title || '').replace(/^(the|a|an)\s+/i, '');
+
+function sortedPodcasts() {
+  const q = state.libQuery.trim().toLowerCase();
+  const sort = SORTS[state.libSort] || SORTS.latest;
+  return state.podcasts
+    .filter((p) => !q || p.title.toLowerCase().includes(q) || (p.author || '').toLowerCase().includes(q))
+    // Ties (and shows with no date) fall back to title so the order is stable.
+    .sort((a, b) => sort.cmp(a, b) || SORTS.title.cmp(a, b));
+}
+
+function renderLibrary() {
+  if (!state.podcasts.length) return renderWelcome();
+  state.view = { type: 'library' };
+  state.selected.clear();
+  renderSidebar();
+
+  const search = h('input', { type: 'search', placeholder: 'Search your podcasts', value: state.libQuery });
+  search.addEventListener('input', () => { state.libQuery = search.value; renderLibraryGrid(); });
+  const sortSel = h('select', { class: 'select', 'aria-label': 'Sort podcasts by' },
+    ...Object.entries(SORTS).map(([k, s]) => h('option', { value: k, selected: k === state.libSort }, s.label)));
+  sortSel.addEventListener('change', () => {
+    state.libSort = sortSel.value;
+    api.settings.set({ librarySort: sortSel.value }).catch(() => {});
+    renderLibraryGrid();
+  });
+
+  $('#main').replaceChildren(h('div', { class: 'main-inner wide' },
+    h('header', { class: 'page-head' },
+      h('div', null, h('h1', null, 'Podcasts'), h('div', { class: 'muted', id: 'lib-sub' })),
+      h('button', { class: 'btn btn-secondary', onclick: (e) => refreshAllFrom(e.currentTarget) }, icon('refresh'), 'Refresh all')),
+    h('div', { class: 'toolbar' },
+      h('div', { class: 'search-input' }, icon('search'), search),
+      h('div', { class: 'spacer' }),
+      h('label', { class: 'sort-label' }, h('span', { class: 'muted small' }, 'Sort by'), sortSel)),
+    h('div', { id: 'lib-grid' })));
+  $('#main').scrollTop = 0;
+  renderLibraryGrid();
+}
+
+function renderLibraryGrid() {
+  const wrap = $('#lib-grid');
+  if (!wrap) return;
+  const items = sortedPodcasts();
+  const totalEps = state.podcasts.reduce((s, p) => s + (p.episodeCount || 0), 0);
+  $('#lib-sub').textContent = `${state.podcasts.length} show${state.podcasts.length === 1 ? '' : 's'} · ${totalEps.toLocaleString()} episodes`;
+  if (!items.length) { wrap.replaceChildren(h('div', { class: 'center' }, 'No podcasts match.')); return; }
+  wrap.replaceChildren(h('div', { class: 'pod-grid' }, ...items.map(podTile)));
+}
+
+function podTile(p) {
+  const fresh = p.latest && (Date.now() - new Date(p.latest)) < 3 * 86400000;
+  const sub = p.lastError
+    ? h('div', { class: 's err' }, icon('alert'), 'Couldn’t refresh')
+    : h('div', { class: 's' }, p.latest ? ago(p.latest) : `${p.episodeCount} episodes`);
+  return h('button', { class: 'tile', title: p.author ? `${p.title} — ${p.author}` : p.title, onclick: () => openPodcast(p.id, 'library') },
+    h('div', { class: 'tile-art' },
+      artwork(p.artwork, p.title),
+      fresh ? h('span', { class: 'tile-dot', title: 'New episode in the last 3 days' }) : null,
+      p.downloadedCount ? h('span', { class: 'tile-badge', title: `${p.downloadedCount} downloaded` }, icon('check'), String(p.downloadedCount)) : null),
+    h('div', { class: 't' }, p.title),
+    sub);
+}
+
+async function refreshAllFrom(btn) {
+  btn.disabled = true;
+  btn.replaceChildren(h('span', { class: 'spinner' }), 'Refreshing…');
+  await refreshAll(true);
+  if (btn.isConnected) { btn.disabled = false; btn.replaceChildren(icon('refresh'), 'Refresh all'); }
+}
+
+// ---------------------------------------------------------------- latest episodes (all shows)
+async function renderLatest() {
+  state.view = { type: 'latest' };
+  state.epQuery = '';
+  state.epMode = 'all';
+  state.shown = 60;
+  state.selected.clear();
+  renderSidebar();
+  state.episodes = await guard(() => api.podcasts.recent(300)) || [];
+  if (state.view.type !== 'latest') return; // user navigated away while loading
+  $('#main').replaceChildren(h('div', { class: 'main-inner' },
+    h('header', { class: 'page-head' },
+      h('div', null, h('h1', null, 'Latest episodes'), h('div', { class: 'muted' }, 'The newest episodes from all your podcasts')),
+      h('button', { class: 'btn btn-secondary', onclick: (e) => refreshAllFrom(e.currentTarget) }, icon('refresh'), 'Refresh all')),
+    episodeToolbar(false), h('div', { id: 'ep-wrap' }), h('div', { id: 'sel-wrap' })));
+  $('#main').scrollTop = 0;
+  renderEpisodeList();
 }
 
 function renderDlStatus() {
@@ -126,6 +217,7 @@ function renderDlStatus() {
 async function reloadPodcasts() {
   state.podcasts = await api.podcasts.list();
   renderSidebar();
+  if (state.view.type === 'library') renderLibraryGrid(); // only the grid, so the search box keeps focus
 }
 
 // ---------------------------------------------------------------- welcome
@@ -150,14 +242,16 @@ function renderWelcome() {
 }
 
 // ---------------------------------------------------------------- podcast view
-async function openPodcast(id) {
-  state.view = { type: 'podcast', id };
+async function openPodcast(id, from = 'library') {
+  state.view = { type: 'podcast', id, from };
   state.epQuery = '';
   state.epMode = 'all';
+  state.epSort = 'newest';
   state.shown = 60;
   state.selected.clear();
   renderSidebar();
   state.episodes = await guard(() => api.podcasts.episodes(id)) || [];
+  if (state.view.type !== 'podcast' || state.view.id !== id) return;
   renderPodcast();
 }
 
@@ -165,18 +259,47 @@ function currentPodcast() { return state.podcasts.find((p) => p.id === state.vie
 
 function filteredEpisodes() {
   const q = state.epQuery.trim().toLowerCase();
-  return state.episodes.filter((e) => {
+  const list = state.episodes.filter((e) => {
     if (state.epMode === 'downloaded' && !e.downloaded) return false;
     if (state.epMode === 'new' && e.downloaded) return false;
     if (!q) return true;
-    return e.title.toLowerCase().includes(q) || (e.description || '').toLowerCase().includes(q);
+    return e.title.toLowerCase().includes(q) || (e.description || '').toLowerCase().includes(q)
+      || (e.podcastTitle || '').toLowerCase().includes(q);
   });
+  // state.episodes always arrives newest-first; keep it that way so "Download latest" stays correct.
+  return state.epSort === 'oldest' ? list.reverse() : list;
+}
+
+/** Search + filter chips (+ sort on a show page) shared by the show page and "Latest episodes". */
+function episodeToolbar(withSort) {
+  const search = h('input', { type: 'search', placeholder: 'Search episodes', value: state.epQuery });
+  search.addEventListener('input', () => { state.epQuery = search.value; state.shown = 60; renderEpisodeList(); });
+  const chip = (mode, label) => h('button', { class: `chip${state.epMode === mode ? ' active' : ''}`, onclick: (e) => {
+    state.epMode = mode; state.shown = 60;
+    e.currentTarget.parentElement.querySelectorAll('.chip').forEach((c) => c.classList.remove('active'));
+    e.currentTarget.classList.add('active');
+    renderEpisodeList();
+  } }, label);
+  let sortSel = null;
+  if (withSort) {
+    sortSel = h('select', { class: 'select', 'aria-label': 'Sort episodes' },
+      h('option', { value: 'newest', selected: state.epSort === 'newest' }, 'Newest first'),
+      h('option', { value: 'oldest', selected: state.epSort === 'oldest' }, 'Oldest first'));
+    sortSel.addEventListener('change', () => { state.epSort = sortSel.value; state.shown = 60; renderEpisodeList(); });
+  }
+  return h('div', { class: 'toolbar' },
+    h('div', { class: 'search-input' }, icon('search'), search),
+    h('div', { class: 'chips' }, chip('all', 'All'), chip('new', 'Not downloaded'), chip('downloaded', 'Downloaded')),
+    h('div', { class: 'spacer' }),
+    h('span', { class: 'muted small', id: 'ep-count' }),
+    sortSel);
 }
 
 function renderPodcast() {
   const p = currentPodcast();
-  if (!p) return renderWelcome();
+  if (!p) return renderLibrary();
   rowActions.clear();
+  const from = state.view.from === 'latest' ? 'latest' : 'library';
 
   const desc = h('div', { class: 'desc', title: 'Click to expand', onclick: () => desc.classList.toggle('open') }, p.description || '');
   const latestSel = h('select', { 'aria-label': 'How many latest episodes' },
@@ -197,21 +320,10 @@ function renderPodcast() {
         p.link ? h('button', { class: 'btn btn-ghost', onclick: () => api.shell.openExternal(p.link) }, icon('link'), 'Website') : null,
         h('button', { class: 'btn btn-danger', onclick: () => removePodcast(p) }, icon('trash'), 'Remove'))));
 
-  const search = h('input', { type: 'search', placeholder: 'Search episodes', value: state.epQuery });
-  search.addEventListener('input', () => { state.epQuery = search.value; state.shown = 60; renderEpisodeList(); });
-  const chip = (mode, label) => h('button', { class: `chip${state.epMode === mode ? ' active' : ''}`, onclick: (e) => {
-    state.epMode = mode; state.shown = 60;
-    e.currentTarget.parentElement.querySelectorAll('.chip').forEach((c) => c.classList.remove('active'));
-    e.currentTarget.classList.add('active');
-    renderEpisodeList();
-  } }, label);
-  const toolbar = h('div', { class: 'toolbar' },
-    h('div', { class: 'search-input' }, icon('search'), search),
-    h('div', { class: 'chips' }, chip('all', 'All'), chip('new', 'Not downloaded'), chip('downloaded', 'Downloaded')),
-    h('div', { class: 'spacer' }),
-    h('span', { class: 'muted small', id: 'ep-count' }));
+  const back = h('button', { class: 'back-link', onclick: () => (from === 'latest' ? renderLatest() : renderLibrary()) },
+    icon('back'), from === 'latest' ? 'Latest episodes' : 'Podcasts');
 
-  $('#main').replaceChildren(h('div', { class: 'main-inner' }, header, toolbar, h('div', { id: 'ep-wrap' }), h('div', { id: 'sel-wrap' })));
+  $('#main').replaceChildren(h('div', { class: 'main-inner' }, back, header, episodeToolbar(true), h('div', { id: 'ep-wrap' }), h('div', { id: 'sel-wrap' })));
   $('#main').scrollTop = 0;
   renderEpisodeList();
 }
@@ -238,7 +350,8 @@ function renderEpisodeList() {
 
 function episodeRow(e) {
   const cb = h('input', { type: 'checkbox', checked: state.selected.has(e.id), 'aria-label': `Select ${e.title}` });
-  const row = h('article', { class: `ep${state.selected.has(e.id) ? ' selected' : ''}` });
+  const multiShow = !!e.podcastId; // rows in "Latest episodes" carry their show
+  const row = h('article', { class: `ep${multiShow ? ' with-art' : ''}${state.selected.has(e.id) ? ' selected' : ''}` });
   cb.addEventListener('change', () => {
     if (cb.checked) state.selected.add(e.id); else state.selected.delete(e.id);
     row.classList.toggle('selected', cb.checked);
@@ -256,7 +369,13 @@ function episodeRow(e) {
   const action = h('div', { class: 'ep-action' });
   rowActions.set(e.id, action);
   renderAction(e, action);
-  row.append(cb, h('div', null, meta, h('div', { class: 'ep-title' }, e.title), desc), action);
+  const show = multiShow
+    ? h('button', { class: 'ep-show', title: `Open ${e.podcastTitle}`, onclick: () => openPodcast(e.podcastId, 'latest') }, e.podcastTitle)
+    : null;
+  const art = multiShow
+    ? h('button', { class: 'ep-art', title: `Open ${e.podcastTitle}`, onclick: () => openPodcast(e.podcastId, 'latest') }, artwork(e.image || e.podcastArtwork, e.podcastTitle))
+    : null;
+  row.append(...[cb, art, h('div', null, show, meta, h('div', { class: 'ep-title' }, e.title), desc), action].filter(Boolean));
   return row;
 }
 
@@ -335,7 +454,7 @@ async function removePodcast(p) {
   if (!ok) return;
   await guard(() => api.podcasts.remove(p.id));
   await reloadPodcasts();
-  renderWelcome();
+  renderLibrary();
 }
 
 async function deleteDownload(e) {
@@ -621,7 +740,7 @@ function openImport(tab) {
       if (!failed.length) {
         closeModal();
         toast(`Added ${ok} podcast${ok === 1 ? '' : 's'}`);
-        if (state.view.type === 'welcome' && state.podcasts[0]) openPodcast(state.podcasts[0].id);
+        if (state.view.type === 'welcome' || state.view.type === 'library') renderLibrary();
         return;
       }
       body.replaceChildren(
@@ -746,6 +865,9 @@ async function refreshAll(loud) {
   if (state.view.type === 'podcast') {
     state.episodes = await api.podcasts.episodes(state.view.id);
     renderEpisodeList();
+  } else if (state.view.type === 'latest') {
+    state.episodes = await api.podcasts.recent(300);
+    renderEpisodeList();
   }
   if (r && (loud || r.newEpisodes)) toast(r.newEpisodes ? `${r.newEpisodes} new episode${r.newEpisodes > 1 ? 's' : ''}` : 'All podcasts are up to date');
 }
@@ -772,15 +894,17 @@ $('#btn-add').addEventListener('click', () => openAdd());
 $('#btn-import').addEventListener('click', () => openImport());
 $('#btn-device').addEventListener('click', () => openDevice());
 $('#btn-settings').addEventListener('click', () => openSettings());
+$('#nav-library').addEventListener('click', () => renderLibrary());
+$('#nav-latest').addEventListener('click', () => renderLatest());
 $('#nav-downloads').addEventListener('click', () => renderDownloads());
-$('#sub-filter').addEventListener('input', (e) => { state.subFilter = e.target.value; renderSidebar(); });
 
 (async function boot() {
   const init = await api.init();
   Object.assign(state, { platform: init.platform, podcasts: init.podcasts, settings: init.settings, canConvert: init.canConvert, version: init.version });
   document.body.classList.add(`platform-${init.platform}`);
+  if (SORTS[init.settings.librarySort]) state.libSort = init.settings.librarySort;
   for (const s of init.downloads) state.dl.set(s.episodeId, s);
-  if (state.podcasts.length) openPodcast(state.podcasts[0].id); else renderWelcome();
+  renderLibrary(); // falls back to the welcome screen when there are no podcasts
   renderDlStatus();
   if (state.settings.refreshOnStart !== false) refreshAll(false);
 }());

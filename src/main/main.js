@@ -68,6 +68,7 @@ function registerIpc() {
 
   handle('podcasts:list', () => library.listPodcasts());
   handle('podcasts:episodes', (id) => library.episodes(id));
+  handle('podcasts:recent', (limit) => library.recentEpisodes(limit));
   handle('podcasts:add', (url, hint) => library.addFeed(url, hint));
   handle('podcasts:addMany', (cands) => library.addMany(cands, (p) => send('import:progress', p)));
   handle('podcasts:refresh', (id) => library.refresh(id));

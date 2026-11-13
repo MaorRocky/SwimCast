@@ -18,10 +18,12 @@
         <button class="btn btn-ghost-light" id="btn-import" title="Import your Apple Podcasts subscriptions"><span data-icon="import"></span>Import</button>
       </div>
       <nav class="side-nav">
+        <div class="nav-heading">Library</div>
+        <button class="nav-item" id="nav-library"><span data-icon="grid"></span><span class="nav-label">Podcasts</span><span class="count" id="podcast-count"></span></button>
+        <button class="nav-item" id="nav-latest"><span data-icon="clock"></span><span class="nav-label">Latest episodes</span></button>
         <button class="nav-item" id="nav-downloads"><span data-icon="check"></span><span class="nav-label">Downloaded</span><span class="count" id="downloaded-count"></span></button>
       </nav>
-      <div class="side-filter"><input id="sub-filter" type="search" placeholder="Filter podcasts" aria-label="Filter podcasts" /></div>
-      <ul class="pod-list" id="pod-list" aria-label="Your podcasts"></ul>
+      <div class="side-spacer"></div>
       <div class="side-footer">
         <div class="dl-status" id="dl-status" hidden></div>
         <button class="btn btn-primary btn-block" id="btn-device"><span data-icon="headphones"></span>Copy to headphones</button>
