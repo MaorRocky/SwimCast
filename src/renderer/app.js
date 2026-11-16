@@ -295,6 +295,26 @@ function episodeToolbar(withSort) {
     sortSel);
 }
 
+const fmtSpeed = (v) => `${Number(v).toFixed(2).replace(/0$/, '')}×`;
+
+/** Per-show download speed picker ("Default (1.5×)" or a fixed 1.5×–2.0×). */
+function speedPicker(p) {
+  const s = state.settings;
+  const off = s.speedUp === false || !state.canConvert;
+  const sel = h('select', { class: 'select', 'aria-label': 'Download speed for this podcast', disabled: off },
+    h('option', { value: '', selected: !p.speed }, `Default (${fmtSpeed(s.defaultSpeed || 1.5)})`),
+    ...state.speeds.map((v) => h('option', { value: String(v), selected: Number(p.speed) === v }, fmtSpeed(v))));
+  sel.addEventListener('change', async () => {
+    const updated = await guard(() => api.podcasts.setSpeed(p.id, sel.value ? Number(sel.value) : null));
+    if (updated) {
+      Object.assign(p, updated);
+      toast(`New downloads of ${p.title} will play at ${fmtSpeed(p.speed || s.defaultSpeed || 1.5)}`);
+    }
+  });
+  return h('label', { class: 'speed-pick', title: off ? 'Speed up is turned off in Settings' : 'Applied when an episode downloads' },
+    h('span', { class: 'sort-label' }, 'Speed'), sel);
+}
+
 function renderPodcast() {
   const p = currentPodcast();
   if (!p) return renderLibrary();
@@ -315,6 +335,7 @@ function renderPodcast() {
         h('span', { class: 'split' },
           h('button', { class: 'btn btn-primary', onclick: () => downloadLatest(Number(latestSel.value)) }, icon('download'), 'Download latest'),
           latestSel),
+        speedPicker(p),
         h('button', { class: 'btn btn-secondary', onclick: (e) => refreshCurrent(e.currentTarget) }, icon('refresh'), 'Refresh'),
         h('button', { class: 'btn btn-secondary', onclick: () => openPodcastFolder(p) }, icon('folder'), 'Open folder'),
         p.link ? h('button', { class: 'btn btn-ghost', onclick: () => api.shell.openExternal(p.link) }, icon('link'), 'Website') : null,
@@ -391,7 +412,7 @@ function renderAction(e, el) {
   }
   if (s && (s.state === 'downloading' || s.state === 'queued' || s.state === 'converting')) {
     const pct = s.total ? Math.min(100, Math.round((s.received / s.total) * 100)) : 0;
-    const label = s.state === 'queued' ? 'Queued' : s.state === 'converting' ? 'Converting to MP3…' : (s.total ? `${pct}%` : fmtBytes(s.received));
+    const label = s.state === 'queued' ? 'Queued' : s.state === 'converting' ? (s.speed > 1 || s.boost ? `Processing${s.speed > 1 ? ` ${fmtSpeed(s.speed)}` : ''}${s.boost ? ' + boost' : ''}…` : 'Converting to MP3…') : (s.total ? `${pct}%` : fmtBytes(s.received));
     const bar = h('div', { class: `bar${(s.state === 'downloading' && s.total) ? '' : ' indeterminate'}` }, h('i'));
     if (s.state === 'downloading' && s.total) bar.firstChild.style.width = `${pct}%`;
     el.replaceChildren(h('div', { class: 'progress' },
@@ -838,6 +859,9 @@ async function openDevice() {
 function openSettings() {
   const s = state.settings;
   const dlPath = h('div', { class: 'path' }, s.downloadDir);
+  const defSpeed = h('select', { class: 'select', 'aria-label': 'Default speed', disabled: !state.canConvert },
+    ...state.speeds.map((v) => h('option', { value: String(v), selected: Number(s.defaultSpeed || 1.5) === v }, fmtSpeed(v))));
+  defSpeed.addEventListener('change', async () => { state.settings = await api.settings.set({ defaultSpeed: Number(defSpeed.value) }); });
   const toggle = (key, label, hint, disabled) => {
     const cb = h('input', { type: 'checkbox', checked: s[key] !== false, disabled });
     cb.addEventListener('change', async () => { state.settings = await api.settings.set({ [key]: cb.checked }); });
@@ -849,6 +873,12 @@ function openSettings() {
         h('button', { class: 'btn btn-secondary', onclick: async () => { const d = await guard(() => api.settings.chooseFolder('download')); if (d) { state.settings.downloadDir = d; dlPath.textContent = d; } } }, 'Change…'),
         h('button', { class: 'btn btn-ghost', onclick: () => api.shell.openFolder() }, 'Open'))),
     toggle('convertToMp3', 'Convert non-MP3 episodes to MP3', state.canConvert ? 'A few shows publish AAC/M4A audio. SwimCast converts them so every swim player can play them.' : 'Converter not available in this build.', !state.canConvert),
+    h('div', { class: 'divider' }, 'swim audio'),
+    toggle('speedUp', 'Speed up episodes', state.canConvert ? 'Your headphones can’t change speed, so SwimCast speeds up episodes when they download. Pitch stays natural. Set a different speed per podcast on its page.' : 'Converter not available in this build.', !state.canConvert),
+    h('div', { class: 'field inline-field' }, h('label', null, 'Default speed'), defSpeed),
+    toggle('boostVolume', 'Boost volume for swimming', state.canConvert ? 'Evens out quiet and loud parts and raises loudness well above normal podcast level, with a peak limiter so it never clips. Great against water noise.' : 'Converter not available in this build.', !state.canConvert),
+    h('p', { class: 'muted small' }, 'Changes apply to new downloads. Delete and re-download an episode to process it again.'),
+    h('div', { class: 'divider' }, 'general'),
     toggle('refreshOnStart', 'Check for new episodes when SwimCast opens', 'Refreshes all your podcasts in the background.'),
     h('div', { class: 'divider' }, 'subscriptions'),
     h('div', { class: 'row' },
@@ -900,7 +930,7 @@ $('#nav-downloads').addEventListener('click', () => renderDownloads());
 
 (async function boot() {
   const init = await api.init();
-  Object.assign(state, { platform: init.platform, podcasts: init.podcasts, settings: init.settings, canConvert: init.canConvert, version: init.version });
+  Object.assign(state, { platform: init.platform, podcasts: init.podcasts, settings: init.settings, canConvert: init.canConvert, speeds: init.speeds || [], version: init.version });
   document.body.classList.add(`platform-${init.platform}`);
   if (SORTS[init.settings.librarySort]) state.libSort = init.settings.librarySort;
   for (const s of init.downloads) state.dl.set(s.episodeId, s);

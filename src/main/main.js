@@ -5,7 +5,7 @@ const fs = require('node:fs');
 const fsp = require('node:fs/promises');
 const { Store } = require('./store');
 const { Library } = require('./library');
-const { DownloadManager, ffmpegPath } = require('./downloads');
+const { DownloadManager, ffmpegPath, SPEEDS, clampSpeed } = require('./downloads');
 const { searchPodcasts, lookupAppleIds } = require('./search');
 const { parseSubscriptionText, buildOpml } = require('./opml');
 const apple = require('./apple');
@@ -64,6 +64,7 @@ function registerIpc() {
     settings: store.settings,
     downloads: downloads.snapshot(),
     canConvert: !!ffmpegPath(),
+    speeds: SPEEDS,
   }));
 
   handle('podcasts:list', () => library.listPodcasts());
@@ -73,6 +74,7 @@ function registerIpc() {
   handle('podcasts:addMany', (cands) => library.addMany(cands, (p) => send('import:progress', p)));
   handle('podcasts:refresh', (id) => library.refresh(id));
   handle('podcasts:refreshAll', () => library.refreshAll((p) => send('refresh:progress', p)));
+  handle('podcasts:setSpeed', (id, speed) => store.updatePodcast(id, { speed: speed ? clampSpeed(Number(speed)) : null }));
   handle('podcasts:remove', (id) => library.remove(id));
   handle('podcasts:search', (term) => searchPodcasts(term));
 
@@ -201,6 +203,9 @@ app.whenReady().then(() => {
     perPodcastFolder: false,
     numberPrefix: true,
     refreshOnStart: true,
+    speedUp: true,
+    defaultSpeed: 1.5,
+    boostVolume: true,
   });
   library = new Library(store);
   downloads = new DownloadManager(store, { concurrency: 3 });

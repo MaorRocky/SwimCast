@@ -285,3 +285,8 @@ label.list-item { cursor: pointer; }
 .toast.error { background: #7d2219; }
 .toast.ok svg { color: #6ee7b7; }
 .welcome .hero svg { width: 84px; height: 84px; }
+
+/* swim audio */
+.speed-pick { display: inline-flex; align-items: center; gap: 6px; }
+.inline-field { display: flex; align-items: center; gap: 10px; margin: 2px 0 8px 24px; }
+.inline-field label { margin: 0; font-weight: 600; }

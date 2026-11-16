@@ -18,6 +18,33 @@ function ffmpegPath() {
   } catch { return null; }
 }
 
+/** Allowed playback speeds: 1.5× to 2.0× in 5% steps. */
+const SPEEDS = Array.from({ length: 11 }, (_, i) => Math.round((1.5 + i * 0.05) * 100) / 100);
+const clampSpeed = (v) => SPEEDS.reduce((best, s) => (Math.abs(s - v) < Math.abs(best - v) ? s : best), SPEEDS[0]);
+
+/** Speed and loudness this podcast's downloads should get (speed 1 = unchanged). */
+function audioPlan(settings, podcast) {
+  const speed = settings.speedUp !== false ? clampSpeed(Number(podcast.speed || settings.defaultSpeed || 1.5)) : 1;
+  return { speed, boost: settings.boostVolume !== false };
+}
+
+/**
+ * ffmpeg filter chain. atempo changes speed without changing pitch. The boost
+ * evens out quiet and loud passages with a gentle compressor, then loudnorm
+ * brings the whole episode to -12 LUFS (most podcasts are mastered at -16 to
+ * -19) with a -1.5 dBTP true-peak ceiling, so it gets louder without clipping.
+ */
+function audioFilters({ speed, boost }) {
+  const f = [];
+  if (speed > 1) f.push(`atempo=${speed}`);
+  if (boost) {
+    f.push('highpass=f=60');
+    f.push('acompressor=threshold=-24dB:ratio=3:attack=10:release=200:makeup=2');
+    f.push('loudnorm=I=-12:TP=-1.5:LRA=7');
+  }
+  return f.join(',');
+}
+
 /** Where an episode will be saved. */
 function targetPath(downloadDir, podcast, episode, ext) {
   const folder = path.join(downloadDir, safeFileName(podcast.title, 80));
@@ -89,7 +116,9 @@ class DownloadManager extends EventEmitter {
     const base = { episodeId, podcastId: podcast.id, title: episode.title };
     const srcExt = audioExt(episode.url, episode.type);
     const ff = ffmpegPath();
-    const convert = srcExt !== 'mp3' && settings.convertToMp3 !== false && !!ff;
+    const plan = ff ? audioPlan(settings, podcast) : { speed: 1, boost: false };
+    const filters = audioFilters(plan);
+    const convert = !!ff && (!!filters || (srcExt !== 'mp3' && settings.convertToMp3 !== false));
     const finalExt = convert ? 'mp3' : srcExt;
     const { folder, file } = targetPath(settings.downloadDir, podcast, episode, finalExt);
     const partFile = `${file}.part`;
@@ -120,8 +149,8 @@ class DownloadManager extends EventEmitter {
       await pipeline(Readable.fromWeb(res.body), counter, fs.createWriteStream(rawFile), { signal });
 
       if (convert) {
-        this._emit({ ...base, state: 'converting', received, total });
-        await this._convert(ff, rawFile, partFile, podcast, episode, signal);
+        this._emit({ ...base, state: 'converting', received, total, speed: plan.speed, boost: plan.boost });
+        await this._convert(ff, rawFile, partFile, podcast, episode, filters, signal);
         await fsp.rm(rawFile, { force: true });
       }
       await fsp.rename(partFile, file);
@@ -136,11 +165,13 @@ class DownloadManager extends EventEmitter {
     }
   }
 
-  _convert(ff, input, output, podcast, episode, signal) {
+  _convert(ff, input, output, podcast, episode, filters, signal) {
     return new Promise((resolve, reject) => {
       const args = [
         '-hide_banner', '-loglevel', 'error', '-y', '-i', input, '-vn',
-        '-codec:a', 'libmp3lame', '-b:a', '128k',
+        ...(filters ? ['-af', filters] : []),
+        // loudnorm resamples internally to 192 kHz, so pin the output rate.
+        '-ar', '44100', '-codec:a', 'libmp3lame', '-b:a', '128k',
         '-metadata', `title=${episode.title}`, '-metadata', `artist=${podcast.author || podcast.title}`,
         '-metadata', `album=${podcast.title}`, '-metadata', 'genre=Podcast',
         '-id3v2_version', '3', '-f', 'mp3', output,
@@ -168,4 +199,4 @@ function friendlyError(err) {
   return m;
 }
 
-module.exports = { DownloadManager, targetPath, ffmpegPath };
+module.exports = { DownloadManager, targetPath, ffmpegPath, audioFilters, audioPlan, SPEEDS, clampSpeed };

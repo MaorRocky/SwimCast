@@ -17,6 +17,7 @@ contextBridge.exposeInMainWorld('api', {
     addMany: (cands) => call('podcasts:addMany', cands),
     refresh: (id) => call('podcasts:refresh', id),
     refreshAll: () => call('podcasts:refreshAll'),
+    setSpeed: (id, speed) => call('podcasts:setSpeed', id, speed),
     remove: (id) => call('podcasts:remove', id),
     search: (term) => call('podcasts:search', term),
   },

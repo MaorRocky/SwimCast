@@ -48,6 +48,15 @@ class Store {
     return this.getPodcast(p.id);
   }
 
+  /** Patch a podcast's own fields (e.g. per-show speed) without re-sorting. */
+  updatePodcast(id, patch) {
+    const p = this.getPodcast(id);
+    if (!p) throw new Error('Podcast not found');
+    Object.assign(p, patch);
+    this.save();
+    return p;
+  }
+
   removePodcast(id) {
     this.data.podcasts = this.data.podcasts.filter((p) => p.id !== id);
     this._episodeCache.delete(id);
