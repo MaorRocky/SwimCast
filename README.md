@@ -6,7 +6,7 @@ A desktop app (Electron) that brings in the podcasts you follow — from Apple P
 
 Swim headphones can't change playback speed or go very loud, so SwimCast bakes both into the MP3 when it downloads (both on by default, in Settings):
 
-- **Speed up**: 1.5× to 2.0× in 5% steps, pitch preserved (ffmpeg `atempo`). Default speed is in Settings; each podcast can override it on its page.
+- **Speed up**: 1.0× (normal) to 2.0× in 0.05 steps, pitch preserved (ffmpeg `atempo`). Default speed is in Settings; each podcast can override it on its page.
 - **Volume boost**: gentle compression, then loudness normalization to -12 LUFS with a -1.5 dBTP true-peak limit (most podcasts are mastered at -16 to -19 LUFS).
 
 ## Develop

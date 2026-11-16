@@ -296,6 +296,7 @@ function episodeToolbar(withSort) {
 }
 
 const fmtSpeed = (v) => `${Number(v).toFixed(2).replace(/0$/, '')}×`;
+const speedLabel = (v) => (Number(v) === 1 ? '1.0× (normal)' : fmtSpeed(v));
 
 /** Per-show download speed picker ("Default (1.5×)" or a fixed 1.5×–2.0×). */
 function speedPicker(p) {
@@ -303,7 +304,7 @@ function speedPicker(p) {
   const off = s.speedUp === false || !state.canConvert;
   const sel = h('select', { class: 'select', 'aria-label': 'Download speed for this podcast', disabled: off },
     h('option', { value: '', selected: !p.speed }, `Default (${fmtSpeed(s.defaultSpeed || 1.5)})`),
-    ...state.speeds.map((v) => h('option', { value: String(v), selected: Number(p.speed) === v }, fmtSpeed(v))));
+    ...state.speeds.map((v) => h('option', { value: String(v), selected: Number(p.speed) === v }, speedLabel(v))));
   sel.addEventListener('change', async () => {
     const updated = await guard(() => api.podcasts.setSpeed(p.id, sel.value ? Number(sel.value) : null));
     if (updated) {
@@ -462,14 +463,25 @@ function downloadOptions(ids) {
 
   return new Promise((resolve) => {
     const finish = (v) => { modalCleanup = null; closeModal(); resolve(v); };
-    const chips = h('div', { class: 'speed-chips', role: 'radiogroup', 'aria-label': 'Speed' });
-    const drawChips = () => {
-      const opts = [...(mixed ? [[null, 'Each show’s default']] : []), [1, 'Normal'], ...state.speeds.map((v) => [v, fmtSpeed(v)])];
-      chips.replaceChildren(...opts.map(([v, label]) => h('button', {
-        class: `chip${speed === v ? ' active' : ''}`, role: 'radio', 'aria-checked': String(speed === v),
-        onclick: () => { speed = v; drawChips(); drawSummary(); },
-      }, label)));
+    const lo = state.speeds[0] || 1, hi = state.speeds[state.speeds.length - 1] || 2;
+    const slider = h('input', { type: 'range', class: 'speed-slider', min: String(lo), max: String(hi), step: '0.05',
+      value: String(speed ?? Number(s.defaultSpeed || 1.5)), 'aria-label': 'Speed' });
+    const readout = h('div', { class: 'speed-readout' });
+    const eachCb = mixed ? h('input', { type: 'checkbox', checked: true }) : null;
+    const drawSpeed = () => {
+      const v = Math.round(Number(slider.value) * 100) / 100;
+      const each = eachCb && eachCb.checked;
+      speed = each ? null : v;
+      slider.disabled = !!each;
+      slider.style.setProperty('--pct', `${((v - lo) / (hi - lo)) * 100}%`);
+      readout.replaceChildren(each ? 'Each show’s default' : fmtSpeed(v), h('small', null, each ? '' : v === 1 ? 'normal speed' : `${Math.round((v - 1) * 100)}% faster`));
+      drawSummary();
     };
+    slider.addEventListener('input', drawSpeed);
+    if (eachCb) eachCb.addEventListener('change', drawSpeed);
+    const speedBox = h('div', { class: 'speed-box' }, readout, slider,
+      h('div', { class: 'speed-scale' }, h('span', null, '1× normal'), h('span', null, '1.5×'), h('span', null, '2×')),
+      eachCb ? h('label', { class: 'check' }, eachCb, h('span', null, 'Use each show’s own default speed')) : null);
     const boostCb = h('input', { type: 'checkbox', checked: boost });
     boostCb.addEventListener('change', () => { boost = boostCb.checked; drawSummary(); });
     const remember = one ? h('input', { type: 'checkbox' }) : null;
@@ -482,11 +494,11 @@ function downloadOptions(ids) {
         ? `About ${Math.round(totalMin)} min of audio becomes ${Math.round(after)} min (saves ${Math.round(totalMin - after)} min).`
         : `About ${Math.round(totalMin)} min of audio.`;
     };
-    drawChips(); drawSummary();
+    drawSpeed();
     const who = one ? one.title : `${pods.length} podcasts`;
     openModal(`Download ${ids.length} episode${ids.length > 1 ? 's' : ''}`, [
       h('p', { class: 'muted' }, who),
-      h('div', { class: 'field' }, h('label', null, 'Speed'), chips, summary),
+      h('div', { class: 'field' }, h('label', null, 'Speed'), speedBox, summary),
       h('label', { class: 'check' }, boostCb, h('span', null, 'Boost volume for swimming', h('small', null, 'Louder and more even, with a limiter so it never clips.'))),
       remember ? h('label', { class: 'check' }, remember, h('span', null, `Use this speed for ${one.title} from now on`)) : null,
     ].filter(Boolean), [
@@ -494,7 +506,7 @@ function downloadOptions(ids) {
       h('button', { class: 'btn btn-secondary', onclick: () => finish(null) }, 'Cancel'),
       h('button', { class: 'btn btn-primary', onclick: async () => {
         if (remember && remember.checked && speed !== null) {
-          const updated = await guard(() => api.podcasts.setSpeed(one.id, speed > 1 ? speed : null));
+          const updated = await guard(() => api.podcasts.setSpeed(one.id, speed));
           if (updated) Object.assign(one, updated);
           if (state.view.type === 'podcast' && state.view.id === one.id) renderPodcast();
         }
@@ -920,7 +932,7 @@ function openSettings() {
   const s = state.settings;
   const dlPath = h('div', { class: 'path' }, s.downloadDir);
   const defSpeed = h('select', { class: 'select', 'aria-label': 'Default speed', disabled: !state.canConvert },
-    ...state.speeds.map((v) => h('option', { value: String(v), selected: Number(s.defaultSpeed || 1.5) === v }, fmtSpeed(v))));
+    ...state.speeds.map((v) => h('option', { value: String(v), selected: Number(s.defaultSpeed || 1.5) === v }, speedLabel(v))));
   defSpeed.addEventListener('change', async () => { state.settings = await api.settings.set({ defaultSpeed: Number(defSpeed.value) }); });
   const toggle = (key, label, hint, disabled) => {
     const cb = h('input', { type: 'checkbox', checked: s[key] !== false, disabled });

@@ -18,8 +18,8 @@ function ffmpegPath() {
   } catch { return null; }
 }
 
-/** Allowed playback speeds: 1.5× to 2.0× in 5% steps. */
-const SPEEDS = Array.from({ length: 11 }, (_, i) => Math.round((1.5 + i * 0.05) * 100) / 100);
+/** Allowed playback speeds: 1.0× (normal) to 2.0× in 0.05 steps. */
+const SPEEDS = Array.from({ length: 21 }, (_, i) => Math.round((1 + i * 0.05) * 100) / 100);
 const clampSpeed = (v) => SPEEDS.reduce((best, s) => (Math.abs(s - v) < Math.abs(best - v) ? s : best), SPEEDS[0]);
 
 /**
