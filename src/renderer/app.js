@@ -439,10 +439,70 @@ function renderSelectionBar() {
     h('button', { class: 'btn btn-ghost-light btn-sm', onclick: () => { state.selected.clear(); renderEpisodeList(); } }, 'Clear')));
 }
 
+/** Every download goes through the options dialog (speed, volume boost). */
 async function startDownloads(ids) {
   if (!ids.length) return;
-  const n = await guard(() => api.downloads.start(ids));
+  const choice = state.canConvert ? await downloadOptions(ids) : {};
+  if (!choice) return;
+  const n = await guard(() => api.downloads.start(ids, choice));
   if (n === 0) toast('Already downloaded or in the queue.');
+}
+
+const showDefaultSpeed = (p) => (state.settings.speedUp === false ? 1 : Number(p?.speed || state.settings.defaultSpeed || 1.5));
+
+/** Ask for speed + boost. Resolves { speed, boost } (speed null = each show's default) or null if canceled. */
+function downloadOptions(ids) {
+  const s = state.settings;
+  const podIds = [...new Set(ids.map((id) => state.episodes.find((e) => e.id === id)?.podcastId || state.view.id).filter(Boolean))];
+  const pods = podIds.map((id) => state.podcasts.find((p) => p.id === id)).filter(Boolean);
+  const one = pods.length === 1 ? pods[0] : null;
+  const mixed = !one && new Set(pods.map(showDefaultSpeed)).size > 1;
+  let speed = mixed ? null : showDefaultSpeed(one || pods[0]);
+  let boost = s.boostVolume !== false;
+
+  return new Promise((resolve) => {
+    const finish = (v) => { modalCleanup = null; closeModal(); resolve(v); };
+    const chips = h('div', { class: 'speed-chips', role: 'radiogroup', 'aria-label': 'Speed' });
+    const drawChips = () => {
+      const opts = [...(mixed ? [[null, 'Each show’s default']] : []), [1, 'Normal'], ...state.speeds.map((v) => [v, fmtSpeed(v)])];
+      chips.replaceChildren(...opts.map(([v, label]) => h('button', {
+        class: `chip${speed === v ? ' active' : ''}`, role: 'radio', 'aria-checked': String(speed === v),
+        onclick: () => { speed = v; drawChips(); drawSummary(); },
+      }, label)));
+    };
+    const boostCb = h('input', { type: 'checkbox', checked: boost });
+    boostCb.addEventListener('change', () => { boost = boostCb.checked; drawSummary(); });
+    const remember = one ? h('input', { type: 'checkbox' }) : null;
+    const summary = h('p', { class: 'muted small' });
+    const totalMin = ids.reduce((t, id) => t + (state.episodes.find((e) => e.id === id)?.duration || 0), 0) / 60;
+    const drawSummary = () => {
+      if (!totalMin || speed === null) { summary.textContent = ''; return; }
+      const after = totalMin / (speed || 1);
+      summary.textContent = speed > 1
+        ? `About ${Math.round(totalMin)} min of audio becomes ${Math.round(after)} min (saves ${Math.round(totalMin - after)} min).`
+        : `About ${Math.round(totalMin)} min of audio.`;
+    };
+    drawChips(); drawSummary();
+    const who = one ? one.title : `${pods.length} podcasts`;
+    openModal(`Download ${ids.length} episode${ids.length > 1 ? 's' : ''}`, [
+      h('p', { class: 'muted' }, who),
+      h('div', { class: 'field' }, h('label', null, 'Speed'), chips, summary),
+      h('label', { class: 'check' }, boostCb, h('span', null, 'Boost volume for swimming', h('small', null, 'Louder and more even, with a limiter so it never clips.'))),
+      remember ? h('label', { class: 'check' }, remember, h('span', null, `Use this speed for ${one.title} from now on`)) : null,
+    ].filter(Boolean), [
+      h('div', { class: 'grow' }),
+      h('button', { class: 'btn btn-secondary', onclick: () => finish(null) }, 'Cancel'),
+      h('button', { class: 'btn btn-primary', onclick: async () => {
+        if (remember && remember.checked && speed !== null) {
+          const updated = await guard(() => api.podcasts.setSpeed(one.id, speed > 1 ? speed : null));
+          if (updated) Object.assign(one, updated);
+          if (state.view.type === 'podcast' && state.view.id === one.id) renderPodcast();
+        }
+        finish({ speed, boost });
+      } }, icon('download'), 'Download'),
+    ]);
+    modalCleanup = () => resolve(null);
+  });
 }
 
 function downloadLatest(n) {

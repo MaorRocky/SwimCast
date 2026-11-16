@@ -22,10 +22,16 @@ function ffmpegPath() {
 const SPEEDS = Array.from({ length: 11 }, (_, i) => Math.round((1.5 + i * 0.05) * 100) / 100);
 const clampSpeed = (v) => SPEEDS.reduce((best, s) => (Math.abs(s - v) < Math.abs(best - v) ? s : best), SPEEDS[0]);
 
-/** Speed and loudness this podcast's downloads should get (speed 1 = unchanged). */
-function audioPlan(settings, podcast) {
-  const speed = settings.speedUp !== false ? clampSpeed(Number(podcast.speed || settings.defaultSpeed || 1.5)) : 1;
-  return { speed, boost: settings.boostVolume !== false };
+/**
+ * Speed and loudness for one download (speed 1 = unchanged). `choice` is what
+ * the user picked in the download dialog: speed null = the podcast's default.
+ */
+function audioPlan(settings, podcast, choice = {}) {
+  const fallback = settings.speedUp !== false ? clampSpeed(Number(podcast.speed || settings.defaultSpeed || 1.5)) : 1;
+  const picked = choice.speed == null ? fallback : Number(choice.speed);
+  const speed = picked > 1 ? clampSpeed(picked) : 1;
+  const boost = typeof choice.boost === 'boolean' ? choice.boost : settings.boostVolume !== false;
+  return { speed, boost };
 }
 
 /**
@@ -61,6 +67,7 @@ class DownloadManager extends EventEmitter {
     this.queue = [];
     this.active = new Map(); // episodeId -> { controller, state }
     this.status = new Map(); // episodeId -> latest public status
+    this.choices = new Map(); // episodeId -> { speed, boost } picked in the download dialog
   }
 
   _emit(s) {
@@ -70,7 +77,7 @@ class DownloadManager extends EventEmitter {
 
   snapshot() { return [...this.status.values()].filter((s) => s.state !== 'done'); }
 
-  enqueue(episodeIds) {
+  enqueue(episodeIds, choice) {
     let added = 0;
     for (const id of episodeIds) {
       if (this.active.has(id) || this.queue.includes(id)) continue;
@@ -78,6 +85,7 @@ class DownloadManager extends EventEmitter {
       const found = this.store.findEpisode(id);
       if (!found) continue;
       this.queue.push(id);
+      if (choice) this.choices.set(id, { speed: choice.speed ?? null, boost: choice.boost });
       added++;
       this._emit({ episodeId: id, podcastId: found.podcast.id, title: found.episode.title, state: 'queued', received: 0, total: found.episode.size || 0 });
     }
@@ -89,6 +97,7 @@ class DownloadManager extends EventEmitter {
     const qi = this.queue.indexOf(episodeId);
     if (qi >= 0) {
       this.queue.splice(qi, 1);
+      this.choices.delete(episodeId);
       const s = this.status.get(episodeId) || { episodeId };
       this._emit({ ...s, state: 'canceled' });
       return;
@@ -104,7 +113,7 @@ class DownloadManager extends EventEmitter {
       this.active.set(id, { controller });
       this._run(id, controller.signal)
         .catch(() => {})
-        .finally(() => { this.active.delete(id); this._pump(); if (!this.active.size && !this.queue.length) this.emit('idle'); });
+        .finally(() => { this.active.delete(id); this.choices.delete(id); this._pump(); if (!this.active.size && !this.queue.length) this.emit('idle'); });
     }
   }
 
@@ -116,7 +125,7 @@ class DownloadManager extends EventEmitter {
     const base = { episodeId, podcastId: podcast.id, title: episode.title };
     const srcExt = audioExt(episode.url, episode.type);
     const ff = ffmpegPath();
-    const plan = ff ? audioPlan(settings, podcast) : { speed: 1, boost: false };
+    const plan = ff ? audioPlan(settings, podcast, this.choices.get(episodeId)) : { speed: 1, boost: false };
     const filters = audioFilters(plan);
     const convert = !!ff && (!!filters || (srcExt !== 'mp3' && settings.convertToMp3 !== false));
     const finalExt = convert ? 'mp3' : srcExt;

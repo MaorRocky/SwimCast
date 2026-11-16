@@ -290,3 +290,6 @@ label.list-item { cursor: pointer; }
 .speed-pick { display: inline-flex; align-items: center; gap: 6px; }
 .inline-field { display: flex; align-items: center; gap: 10px; margin: 2px 0 8px 24px; }
 .inline-field label { margin: 0; font-weight: 600; }
+.speed-chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0 4px; }
+.speed-chips .chip { border: 1px solid var(--line); background: var(--surface); padding: 6px 12px; }
+.speed-chips .chip.active { background: var(--aqua); border-color: var(--aqua); color: #04232c; }

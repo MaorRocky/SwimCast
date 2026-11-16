@@ -31,7 +31,7 @@ contextBridge.exposeInMainWorld('api', {
     exportOpml: () => call('export:opml'),
   },
   downloads: {
-    start: (ids) => call('downloads:start', ids),
+    start: (ids, choice) => call('downloads:start', ids, choice),
     cancel: (id) => call('downloads:cancel', id),
     listDownloaded: () => call('downloads:listDownloaded'),
     remove: (id) => call('downloads:delete', id),

@@ -112,7 +112,7 @@ function registerIpc() {
     return r.filePath;
   });
 
-  handle('downloads:start', (ids) => downloads.enqueue(ids));
+  handle('downloads:start', (ids, choice) => downloads.enqueue(ids, choice));
   handle('downloads:cancel', (id) => downloads.cancel(id));
   handle('downloads:listDownloaded', () => {
     const out = [];
