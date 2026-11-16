@@ -10,7 +10,7 @@ const fsp = require('node:fs/promises');
 const path = require('node:path');
 const { pipeline } = require('node:stream/promises');
 const { Transform } = require('node:stream');
-const { safeFileName, isoDate } = require('./util');
+const { safeFileName, isoDate, ensureDir } = require('./util');
 
 async function freeSpace(dir) {
   try {
@@ -62,7 +62,7 @@ async function copyToDevice(items, options, onProgress = () => {}, signal) {
     if (signal && signal.aborted) break;
     const it = sorted[i];
     const folder = perPodcastFolder ? path.join(destDir, safeFileName(it.podcast.title, 60)) : destDir;
-    await fsp.mkdir(folder, { recursive: true });
+    await ensureDir(folder);
     if (!counters.has(folder)) counters.set(folder, highestNumber(folder));
 
     const ext = path.extname(it.path) || '.mp3';

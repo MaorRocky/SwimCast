@@ -9,6 +9,7 @@ const { DownloadManager, ffmpegPath, SPEEDS, clampSpeed } = require('./downloads
 const { searchPodcasts, lookupAppleIds } = require('./search');
 const { parseSubscriptionText, buildOpml } = require('./opml');
 const apple = require('./apple');
+const { ensureDir } = require('./util');
 const { copyToDevice, freeSpace } = require('./sdcard');
 
 let win;
@@ -169,7 +170,7 @@ function registerIpc() {
   handle('shell:showItem', (p) => { if (p && fs.existsSync(p)) shell.showItemInFolder(p); });
   handle('shell:openFolder', async (p) => {
     const target = p || store.settings.downloadDir;
-    await fsp.mkdir(target, { recursive: true }).catch(() => {});
+    await ensureDir(target).catch(() => {});
     return shell.openPath(target);
   });
   handle('shell:openExternal', (url) => { if (/^https?:/i.test(url)) shell.openExternal(url); });

@@ -1,5 +1,6 @@
 'use strict';
 const crypto = require('node:crypto');
+const fsp = require('node:fs/promises');
 
 /** Short, stable id derived from a string (feed URL, episode guid...). */
 function hashId(str) {
@@ -119,7 +120,16 @@ async function mapLimit(items, limit, fn) {
   return results;
 }
 
+/**
+ * mkdir -p that also works on a drive root. On Windows, mkdir('D:\', { recursive: true })
+ * throws EPERM even though the drive exists, so skip folders that are already there.
+ */
+async function ensureDir(dir) {
+  try { if ((await fsp.stat(dir)).isDirectory()) return; } catch { /* missing: create it */ }
+  await fsp.mkdir(dir, { recursive: true });
+}
+
 module.exports = {
-  hashId, decodeEntities, htmlToText, parseDuration, safeFileName, isoDate, audioExt,
+  ensureDir, hashId, decodeEntities, htmlToText, parseDuration, safeFileName, isoDate, audioExt,
   formatBytes, mapLimit,
 };

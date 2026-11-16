@@ -7,7 +7,7 @@ const { Readable, Transform } = require('node:stream');
 const { pipeline } = require('node:stream/promises');
 const { spawn } = require('node:child_process');
 const { getFetch, USER_AGENT } = require('./http');
-const { safeFileName, isoDate, audioExt } = require('./util');
+const { safeFileName, isoDate, audioExt, ensureDir } = require('./util');
 
 function ffmpegPath() {
   try {
@@ -134,7 +134,7 @@ class DownloadManager extends EventEmitter {
     const rawFile = convert ? `${file}.src.${srcExt}` : partFile;
 
     try {
-      await fsp.mkdir(folder, { recursive: true });
+      await ensureDir(folder);
       if (fs.existsSync(file)) {
         const size = fs.statSync(file).size;
         this.store.setDownload(episodeId, { podcastId: podcast.id, path: file, size, at: new Date().toISOString() });
